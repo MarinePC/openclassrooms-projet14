@@ -4,7 +4,10 @@ from sqlmodel import SQLModel, Session, create_engine, select
 import bcrypt
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DATABASE_URL, echo=True)
+
+# L'engine est créé uniquement si DATABASE_URL est définie
+# (les tests injectent leur propre engine via les fixtures)
+engine = create_engine(DATABASE_URL, echo=True) if DATABASE_URL else None
 
 
 def get_session():
@@ -12,11 +15,11 @@ def get_session():
     with Session(engine) as session:
         yield session
 
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     print("Database initialized successfully")
 
-    # Creating a default user
     default_email = "test@test.com"
     default_password = "test"
 

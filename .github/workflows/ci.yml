@@ -1,0 +1,28 @@
+name: CI — Tests backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Installation de uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Installation des dépendances
+        working-directory: backend
+        run: uv sync
+
+      - name: Lancement des tests
+        working-directory: backend
+        env:
+          MISTRAL_API_KEY: test-key-fake
+        run: uv run pytest tests/ -v
