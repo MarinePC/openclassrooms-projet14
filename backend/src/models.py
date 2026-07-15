@@ -15,3 +15,5 @@ class Chat(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id", index=True)
     # Historique complet au format PydanticAI (liste de messages JSON)
     messages: list = Field(default=[], sa_column=Column(JSON))
+    # System prompt avec actualités injectées (sauvegardé pour la continuité)
+    system_prompt: Optional[str] = Field(default=None)

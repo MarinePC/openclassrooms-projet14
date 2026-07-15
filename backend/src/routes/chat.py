@@ -9,19 +9,9 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter
 from models import Chat, User
 from database import get_session
 from dependencies import get_current_user
+from utils.news import build_system_prompt
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
-
-# Initialisation de l'agent PydanticAI avec Mistral
-agent = Agent(
-    "mistral:mistral-small-latest",
-    system_prompt=(
-        "Tu es un assistant spécialisé pour les journalistes et pigistes. "
-        "Tu les aides à faire leur veille d'actualité, à analyser des articles "
-        "et à préparer des revues de presse. Tes réponses sont claires, "
-        "structurées et adaptées à un contexte professionnel journalistique."
-    ),
-)
 
 
 def serialize_messages(messages: list) -> list:
@@ -31,6 +21,14 @@ def serialize_messages(messages: list) -> list:
             return obj.isoformat()
         raise TypeError(f"Type {type(obj)} non sérialisable")
     return json.loads(json.dumps(messages, default=default))
+
+
+def get_agent(system_prompt: str) -> Agent:
+    """Crée un agent PydanticAI avec le system prompt fourni."""
+    return Agent(
+        "mistral:mistral-small-latest",
+        system_prompt=system_prompt,
+    )
 
 
 class MessageRequest(BaseModel):
@@ -43,8 +41,18 @@ async def create_chat(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Crée une nouvelle conversation vide pour l'utilisateur authentifié."""
-    chat = Chat(user_id=current_user.id, messages=[])
+    """
+    Crée une nouvelle conversation pour l'utilisateur authentifié.
+    Génère le system prompt avec les actualités du jour et le sauvegarde en DB.
+    """
+    # Génère le system prompt avec les actualités du jour
+    prompt = await build_system_prompt()
+
+    chat = Chat(
+        user_id=current_user.id,
+        messages=[],
+        system_prompt=prompt,
+    )
     session.add(chat)
     session.commit()
     session.refresh(chat)
@@ -91,6 +99,7 @@ async def send_message(
     """
     Ajoute un message utilisateur, obtient la réponse du LLM,
     sauvegarde l'historique et retourne la réponse.
+    Utilise le system prompt sauvegardé lors de la création du chat.
     """
     chat = session.get(Chat, chat_id)
 
@@ -99,6 +108,9 @@ async def send_message(
 
     if chat.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
+
+    # Utilise le system prompt sauvegardé (avec les actualités du jour de création)
+    agent = get_agent(chat.system_prompt)
 
     # Envoi du message à l'agent avec l'historique existant
     result = await agent.run(

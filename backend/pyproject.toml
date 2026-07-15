@@ -16,5 +16,5 @@ dependencies = [
     "pytest-asyncio>=1.4.0",
     "httpx>=0.28.1",
     "pydantic-ai-slim[mistral]>=2.5.0",
-    "mistralai>=1.0.0",
+    "mistralai>=2.6.0",
 ]
