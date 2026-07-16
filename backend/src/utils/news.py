@@ -52,7 +52,7 @@ async def fetch_top_news(language: str = "fr", count: int = 20) -> list[dict]:
 async def search_news(query: str, count: int = 10) -> list[dict]:
     """
     Recherche des articles sur un sujet précis via WorldNewsAPI /search-news.
-    Retourne une liste d'articles avec titre, résumé et date de publication.
+    Retourne titre, résumé, date, URL et texte complet pour le RAG.
     """
     if not WORLDNEWSAPI_KEY:
         raise ValueError("WORLDNEWSAPI_KEY non définie dans les variables d'environnement")
@@ -77,11 +77,15 @@ async def search_news(query: str, count: int = 10) -> list[dict]:
         title = article.get("title", "").strip()
         summary = article.get("summary", "").strip()
         publish_date = article.get("publish_date", "").strip()
+        url = article.get("url", "").strip()
+        text = article.get("text", "").strip()
         if title:
             articles.append({
                 "title": title,
                 "summary": summary,
                 "publish_date": publish_date,
+                "url": url,
+                "text": text,
             })
 
     return articles
@@ -90,7 +94,6 @@ async def search_news(query: str, count: int = 10) -> list[dict]:
 async def summarize_news(articles: list[dict]) -> str:
     """
     Synthétise une liste d'articles en un résumé concis via Mistral.
-    Évite les redondances et garde le prompt système court.
     """
     if not articles:
         return ""
@@ -123,7 +126,6 @@ async def summarize_news(articles: list[dict]) -> str:
 async def build_system_prompt() -> str:
     """
     Construit le system prompt complet avec les actualités du jour injectées.
-    Retourne le prompt de base si l'API n'est pas disponible.
     """
     try:
         articles = await fetch_top_news()

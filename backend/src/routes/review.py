@@ -7,7 +7,7 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter
 from models import Chat, Review, User
 from database import get_session
 from dependencies import get_current_user
-import json
+from utils.rag import build_index, retrieve_relevant_passages
 
 router = APIRouter(prefix="/api/chats", tags=["reviews"])
 
@@ -32,10 +32,9 @@ review_agent = Agent(
     output_type=ReviewOutput,
     system_prompt=(
         "Tu es un expert en rédaction de revues de presse professionnelles. "
-        "À partir d'un historique de discussion et d'un sujet donné, tu génères "
-        "une revue de presse structurée et synthétique. "
-        "Tu identifies les articles et informations clés mentionnés dans la discussion, "
-        "tu les analyses et tu produis une synthèse claire et professionnelle. "
+        "À partir d'un historique de discussion, d'extraits d'articles et d'un sujet donné, "
+        "tu génères une revue de presse structurée et synthétique. "
+        "Tu te bases uniquement sur les informations fournies dans le contexte. "
         "Tes revues de presse sont adaptées à des journalistes et pigistes professionnels."
     ),
 )
@@ -43,7 +42,6 @@ review_agent = Agent(
 # --- Schéma de requête ---
 
 class ReviewRequest(BaseModel):
-    """Schéma de requête pour générer une revue de presse."""
     topic: str
 
 # --- Routes ---
@@ -56,8 +54,8 @@ async def generate_review(
     session: Session = Depends(get_session),
 ):
     """
-    Génère une revue de presse structurée à partir de l'historique
-    d'une conversation et d'un sujet choisi par l'utilisateur.
+    Génère une revue de presse enrichie par RAG à partir de l'historique
+    et des articles chargés durant la conversation.
     """
     chat = session.get(Chat, chat_id)
 
@@ -70,22 +68,37 @@ async def generate_review(
     if not chat.messages:
         raise HTTPException(
             status_code=400,
-            detail="La conversation est vide. Discutez d'abord d'un sujet avant de générer une revue de presse."
+            detail="La conversation est vide."
+        )
+
+    # RAG : indexe les articles chargés et retrouve les passages pertinents
+    rag_context = ""
+    if chat.loaded_articles:
+        print(f"[rag] Indexation de {len(chat.loaded_articles)} articles...")
+        index = build_index(chat.loaded_articles)
+        if index:
+            rag_context = retrieve_relevant_passages(index, request.topic)
+            print(f"[rag] {len(rag_context)} caractères de contexte retrouvés")
+
+    # Prépare le prompt avec le contexte RAG
+    user_prompt = f"Génère une revue de presse professionnelle sur le sujet : '{request.topic}'."
+    if rag_context:
+        user_prompt += (
+            f"\n\nVoici des extraits d'articles pertinents issus de notre discussion :\n\n"
+            f"{rag_context}\n\n"
+            f"Utilise ces extraits pour enrichir ta revue de presse."
         )
 
     # Convertit l'historique JSON en messages PydanticAI
     history = ModelMessagesTypeAdapter.validate_python(chat.messages)
 
-    # Génère la revue de presse avec l'agent spécialisé
     result = await review_agent.run(
-        f"Génère une revue de presse professionnelle sur le sujet : '{request.topic}'. "
-        f"Utilise les informations et articles mentionnés dans notre discussion.",
+        user_prompt,
         message_history=history,
     )
 
     output: ReviewOutput = result.output
 
-    # Sauvegarde en base de données
     review = Review(
         chat_id=chat_id,
         user_id=current_user.id,

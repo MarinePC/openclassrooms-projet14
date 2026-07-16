@@ -15,6 +15,9 @@ class Chat(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id", index=True)
     messages: list = Field(default=[], sa_column=Column(JSON))
     system_prompt: Optional[str] = Field(default=None)
+    # Articles chargés durant le chat via search_news_tool
+    # Format : [{"title": "...", "url": "...", "text": "...", "publish_date": "..."}]
+    loaded_articles: list = Field(default=[], sa_column=Column(JSON))
 
 
 class Review(SQLModel, table=True):
@@ -22,11 +25,7 @@ class Review(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     chat_id: int = Field(foreign_key="chat.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)
-    # Sujet choisi par l'utilisateur
     topic: str = Field()
-    # Titre généré par le LLM
     title: str = Field()
-    # Synthèse générale de la revue de presse
     summary: str = Field()
-    # Liste des articles mentionnés avec leur analyse
     articles: list = Field(default=[], sa_column=Column(JSON))
