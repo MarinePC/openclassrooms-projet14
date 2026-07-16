@@ -13,7 +13,20 @@ class Chat(SQLModel, table=True):
     """Représente une conversation entre un utilisateur et le LLM."""
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
-    # Historique complet au format PydanticAI (liste de messages JSON)
     messages: list = Field(default=[], sa_column=Column(JSON))
-    # System prompt avec actualités injectées (sauvegardé pour la continuité)
     system_prompt: Optional[str] = Field(default=None)
+
+
+class Review(SQLModel, table=True):
+    """Revue de presse générée à partir d'une conversation."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    chat_id: int = Field(foreign_key="chat.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    # Sujet choisi par l'utilisateur
+    topic: str = Field()
+    # Titre généré par le LLM
+    title: str = Field()
+    # Synthèse générale de la revue de presse
+    summary: str = Field()
+    # Liste des articles mentionnés avec leur analyse
+    articles: list = Field(default=[], sa_column=Column(JSON))
