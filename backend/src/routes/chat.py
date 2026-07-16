@@ -4,12 +4,12 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
 from sqlmodel import Session, select
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from models import Chat, User
 from database import get_session
 from dependencies import get_current_user
-from utils.news import build_system_prompt
+from utils.news import build_system_prompt, search_news
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
 
@@ -24,11 +24,41 @@ def serialize_messages(messages: list) -> list:
 
 
 def get_agent(system_prompt: str) -> Agent:
-    """Crée un agent PydanticAI avec le system prompt fourni."""
-    return Agent(
+    """Crée un agent PydanticAI avec le system prompt et les tools fournis."""
+    agent = Agent(
         "mistral:mistral-small-latest",
         system_prompt=system_prompt,
     )
+
+    @agent.tool_plain
+    async def search_news_tool(query: str) -> str:
+        """
+        Recherche des articles de presse récents sur un sujet précis.
+        Utilise cet outil quand l'utilisateur demande plus d'informations
+        sur un sujet spécifique ou veut approfondir un thème d'actualité.
+
+        Args:
+            query: Le sujet ou les mots-clés à rechercher (ex: "intelligence artificielle", "élections France")
+
+        Returns:
+            Une liste d'articles récents avec leur titre, résumé et date de publication.
+        """
+        articles = await search_news(query)
+        if not articles:
+            return f"Aucun article trouvé pour la recherche : '{query}'"
+
+        result = f"Articles trouvés pour '{query}' :\n\n"
+        for i, article in enumerate(articles, 1):
+            result += f"{i}. **{article['title']}**\n"
+            if article.get("publish_date"):
+                result += f"   Date : {article['publish_date']}\n"
+            if article.get("summary"):
+                result += f"   Résumé : {article['summary']}\n"
+            result += "\n"
+
+        return result
+
+    return agent
 
 
 class MessageRequest(BaseModel):
@@ -45,7 +75,6 @@ async def create_chat(
     Crée une nouvelle conversation pour l'utilisateur authentifié.
     Génère le system prompt avec les actualités du jour et le sauvegarde en DB.
     """
-    # Génère le system prompt avec les actualités du jour
     prompt = await build_system_prompt()
 
     chat = Chat(
@@ -97,9 +126,9 @@ async def send_message(
     session: Session = Depends(get_session),
 ):
     """
-    Ajoute un message utilisateur, obtient la réponse du LLM,
+    Ajoute un message utilisateur, obtient la réponse de l'agent,
     sauvegarde l'historique et retourne la réponse.
-    Utilise le system prompt sauvegardé lors de la création du chat.
+    L'agent peut appeler search_news_tool pour approfondir un sujet.
     """
     chat = session.get(Chat, chat_id)
 
@@ -109,16 +138,13 @@ async def send_message(
     if chat.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
 
-    # Utilise le system prompt sauvegardé (avec les actualités du jour de création)
     agent = get_agent(chat.system_prompt)
 
-    # Envoi du message à l'agent avec l'historique existant
     result = await agent.run(
         request.content,
         message_history=chat.messages,
     )
 
-    # Sérialisation et sauvegarde de l'historique
     chat.messages = serialize_messages(
         ModelMessagesTypeAdapter.dump_python(result.all_messages())
     )

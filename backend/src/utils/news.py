@@ -10,7 +10,9 @@ BASE_PROMPT = (
     "Tu es un assistant spécialisé pour les journalistes et pigistes. "
     "Tu les aides à faire leur veille d'actualité, à analyser des articles "
     "et à préparer des revues de presse. Tes réponses sont claires, "
-    "structurées et adaptées à un contexte professionnel journalistique."
+    "structurées et adaptées à un contexte professionnel journalistique. "
+    "Quand un utilisateur demande plus d'informations sur un sujet précis, "
+    "utilise l'outil search_news pour chercher des articles récents sur ce sujet."
 )
 
 
@@ -36,7 +38,6 @@ async def fetch_top_news(language: str = "fr", count: int = 20) -> list[dict]:
         data = response.json()
 
     articles = []
-    # WorldNewsAPI retourne les articles dans "top_news" > "news"
     top_news = data.get("top_news", [])
     for section in top_news:
         for article in section.get("news", []):
@@ -44,6 +45,44 @@ async def fetch_top_news(language: str = "fr", count: int = 20) -> list[dict]:
             summary = article.get("summary", "").strip()
             if title:
                 articles.append({"title": title, "summary": summary})
+
+    return articles
+
+
+async def search_news(query: str, count: int = 10) -> list[dict]:
+    """
+    Recherche des articles sur un sujet précis via WorldNewsAPI /search-news.
+    Retourne une liste d'articles avec titre, résumé et date de publication.
+    """
+    if not WORLDNEWSAPI_KEY:
+        raise ValueError("WORLDNEWSAPI_KEY non définie dans les variables d'environnement")
+
+    url = "https://api.worldnewsapi.com/search-news"
+    params = {
+        "api-key": WORLDNEWSAPI_KEY,
+        "text": query,
+        "language": "fr",
+        "number": count,
+        "sort": "publish-time",
+        "sort-direction": "DESC",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, params=params, timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+
+    articles = []
+    for article in data.get("news", []):
+        title = article.get("title", "").strip()
+        summary = article.get("summary", "").strip()
+        publish_date = article.get("publish_date", "").strip()
+        if title:
+            articles.append({
+                "title": title,
+                "summary": summary,
+                "publish_date": publish_date,
+            })
 
     return articles
 
@@ -56,7 +95,6 @@ async def summarize_news(articles: list[dict]) -> str:
     if not articles:
         return ""
 
-    # Formate les articles pour le prompt de synthèse
     articles_text = "\n".join(
         f"- {a['title']}: {a['summary']}" if a["summary"] else f"- {a['title']}"
         for a in articles
@@ -103,6 +141,5 @@ async def build_system_prompt() -> str:
             "--------------------------"
         )
     except Exception as e:
-        # En cas d'erreur (API indispo, quota dépassé...), on dégrade gracieusement
         print(f"[news] Impossible de charger les actualités : {e}")
         return BASE_PROMPT
